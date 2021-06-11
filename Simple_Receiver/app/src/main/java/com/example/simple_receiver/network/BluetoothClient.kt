@@ -3,7 +3,6 @@ package com.example.simple_receiver.network
 import android.bluetooth.BluetoothDevice
 import android.util.Log
 import com.example.simple_receiver.*
-import com.example.simple_receiver.utilities.EncryptDecryptTest.checkHexValues
 import com.example.simple_receiver.utilities.EncryptDecryptTest.parseDecrypt
 import com.example.simple_receiver.utilities.errorDialog
 import com.example.simple_receiver.utilities.messageToast
@@ -59,7 +58,7 @@ class BluetoothClient(private val activity: MainActivity, device: BluetoothDevic
                         }
                     }
                     // Écrire un message dans le flux de sortie
-                    outputStream.write(message.toByteArray())
+                    outputStream.write(outgoing)
                     // Assurez-vous que tout le message est envoyé
                     outputStream.flush()
                     // Mettre à jour le journal des messages
@@ -136,7 +135,7 @@ class BluetoothClient(private val activity: MainActivity, device: BluetoothDevic
     }
 
     // Envoyer le message reçu à la fonction parseMessage dans MainActivity
-    private fun parse(msg: String){
+    private fun parse(msg: Pair<String, UByte>){
         // Pour éviter les avertissements, exécutez sur le thread d'interface utilisateur
         activity.runOnUiThread(Runnable {
             // Envoyer un message à l'analyseur de messages pour traitement
@@ -153,6 +152,7 @@ class BluetoothClient(private val activity: MainActivity, device: BluetoothDevic
             var bytes = ByteArray(3)
             this.socket.inputStream.read(bytes)
             var size = String(bytes)
+            // Deal with leading zeroes
             if (size[0] == '0') {
                 size = size.drop(1)
                 if (size[0] == '0') {
@@ -161,23 +161,23 @@ class BluetoothClient(private val activity: MainActivity, device: BluetoothDevic
             }
             sizeInt = size.toInt()
             recving = true
+            Log.d("CHECK_SIZE", String(bytes))
         }
         else if (available >= sizeInt && recving) {
-            var mBytes = ByteArray(sizeInt)
             try {
                 if (sizeInt > 92) {
                     Log.d("CHECK_ERR", "Error out of sync!")
                 }
                 // Déclarer un tableau d'octets vide de la taille du message entrant
-                mBytes = ByteArray(sizeInt)
+                var mBytes = ByteArray(sizeInt)
                 // Lire le message entrant et écrire dans le tableau d'octets
                 this.socket.inputStream.read(mBytes)
 
-                // Convertir un tableau d'octets en chaîne
-                val plaintext = String(parseDecrypt(mBytes, sizeInt))
+                // Returns a Pair with message as string and counter as UByte
+                val textPlusCount = parseDecrypt(mBytes, sizeInt)
 
                 // Envoyer un message à l'analyseur de messages pour traitement
-                parse(plaintext)
+                parse(textPlusCount)
 
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -185,5 +185,5 @@ class BluetoothClient(private val activity: MainActivity, device: BluetoothDevic
             }
             recving = false
         }
-        }
     }
+}

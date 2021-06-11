@@ -39,15 +39,16 @@ uint8_t checktag[TAG_SIZE] = {0xbd, 0xde, 0x04, 0x2b, 0x67, 0xc6, 0xdc, 0x59,
                               0xb3, 0xf0, 0xf2, 0x32, 0xc6, 0x71, 0x6f, 0x5c};
 
 char sizeBuffer[3];
+int btSize = 0;
+byte btPosition = 0x00;
 
 String btBuffer;
-byte mCounter = 0x01;
-byte rCounter = 0x00;
-bool encryptMe = false;
+String disconn = "<DISCONN>";
+String conn = "<CONNECT>";
+bool setConnect = false;
+bool messageReady = false;
 
-bool btConnected = false;
-
-String fail = "";
+char fail[1] = { 0x00 };
 // ------------------------------------------- //
 
 
@@ -70,27 +71,24 @@ unsigned long messageCounter = 0;
 #define SEG_CLK     18
 
 bool notify_flag = false;
-int notify_select = 0;
-
-unsigned long notify_delay = 0;
+unsigned long bad_delay = 0;
 
 // All hex characters for display 0-F
 uint8_t disp_char[16] = {0x7E, 0x30, 0x6D, 0x79, 0x33, 0x5B, 0x5F, 0x70, 0x7F, 0x7B, 0x77, 0x1F, 0x4E, 0x3D, 0x4F, 0x47};
 
+int notify_code = 0;
+// Error Message
+uint8_t disp_error[8] = {0x4F, 0x05, 0x05, 0x1D, 0x05, 0x00, 0x7E, 0x00};
+// Bad Tag
+uint8_t disp_tagerr[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x40, 0x46, 0x77, 0x5E };
+// Bad Pos
+uint8_t disp_poserr[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x57, 0x7E, 0x5B, 0x00 };
+// Bad Size
+uint8_t disp_sizeerr[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x5B, 0x30, 0x6D, 0x4F };
 // Connect Message
-uint8_t notify_connect[8] = {0x4E, 0x7E, 0x76, 0x76, 0x4F, 0x4E, 0x70, 0xC0};
+uint8_t disp_conn[8] = {0x4E, 0x7E, 0x76, 0x76, 0x4F, 0x4E, 0x70, 0xC0};
 // Disconnect Message
-uint8_t notify_disconnect[8] = {0x3D, 0x30, 0x5B, 0x4E, 0x7E, 0x76, 0x76, 0x80};
-
-// Bad Size Error
-uint8_t size_error[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x5B, 0x30, 0x6D, 0x4F };
-// Counter Position Error
-uint8_t pos_error[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x67, 0x7E, 0x5B, 0x00 };
-// Bad Tag Error
-uint8_t tag_error[8] = { 0x7F, 0x77, 0x3D, 0x00, 0x40, 0x46, 0x77, 0x5E };
-// Unknown Error
-uint8_t unknown_error[8] = {0x4F, 0x05, 0x05, 0x1D, 0x05, 0x00, 0x7E, 0x00};
-
+uint8_t disp_disc[8] = {0x3D, 0x30, 0x5B, 0x4E, 0x7E, 0x76, 0x76, 0x80};
 
 // Writes data to the 7 segment display
 void setDisplay(byte address, byte value) {
@@ -299,15 +297,13 @@ void setup() {
 
   loadDisplay();
 
-  /*
   // Check if TCS3471 is connected and functioning
   if(!TCS3471.detect()){
     //Serial.println("Error: Color Click not detected!");
     setMessage(disp_error);
     while(1);
   }
-  */
-  
+
   // Setup TCS3471
   // Range is 2.4ms to 614.4ms, more time means slower but more precise
   TCS3471.setIntegrationTime(350.0);
@@ -348,124 +344,113 @@ void loop() {
 
 
   
-  // FETCH BLUETOOTH MESSAGE AND DECRYPT ----- //
-  if (!encryptMe) {
-    if (SerialBT.available() >= 3) {
-      Serial.println("-----------------------------");
-      Serial.println("Receiving a message...");
-      // Get message size
-      for (int k = 0; k < 3; k++) {
-        sizeBuffer[k] = SerialBT.read();
-        // Serial.println(sizeBuffer[k], HEX);
+  // CHECK FOR BLUETOOTH MESSAGES ----- //
+  if (SerialBT.available() >= 3) {
+    Serial.println();
+    // Get message size
+    for (int k = 0; k < 3; k++) {
+      sizeBuffer[k] = SerialBT.read();
+    }
+    btSize = getBtSize(sizeBuffer);
+
+    Serial.println("Encrypted String:");
+    byte* bt_array = (byte *)malloc(sizeof(byte)*btSize);
+    for(int x = 0; x < btSize; x++) {
+      bt_array[x] = SerialBT.read();
+    }
+    for (int j = 0; j < btSize; j++){
+      Serial.print(bt_array[j], HEX);
+      Serial.print(" ");
+      if((j + 1) % 8 == 0) {
+        Serial.println();
       }
-      int mSize = getBtSize(sizeBuffer);
-      Serial.print("Message size: ");
-      Serial.println(mSize);
+    }
+    Serial.println();
+    Serial.println();
+    Serial.println("Decrypting...");
+    String btBuffer = decryptMessage(bt_array);
+    Serial.println("Finished!");
+    Serial.println(btBuffer);
 
-      if (mSize > 28 || mSize < 156) {
-        // Declare dynamic array and receive the message
-        byte* bt_array = (byte *)malloc(sizeof(byte)*mSize);
-        for(int x = 0; x < mSize; x++) {
-          bt_array[x] = SerialBT.read();
-        }
+    free(bt_array);
 
-        Serial.println("Decrypting...");
-        btBuffer = decryptMessage(bt_array, mSize);
-        free(bt_array);
-        incrementCount();
-        Serial.println("Finished Decrypting!");
-        if (validateCounter()) {
-          Serial.println("Counter validated!");
-          Serial.print("Message received: ");
-          Serial.println(btBuffer);
-        } else {
-          Serial.println("validateCounter() check failed.");
-          notify_select = 4;
-          notify_flag = true;
-        }
+    incrementCount();
+    // -------------------------------- //
+  }
+
+
+  if(notify_flag) {
+    bad_delay = millis();
+    notify_flag = false;
+  }
+
+  // Sending messages
+  if (messageReady) {
+    Serial.println("Message Ready");
+    Serial.println(setConnect);
+    if (setConnect) {
+      Serial.println("Hello");
+      if (conn.equals(btBuffer)) {
+        notify_code = 4;  // "CONNECT"
+        setConnect = false;
+        notify_flag = true;
+        Serial.println("We are connected!");
       } else {
-        // Message is too small dump input buffer -> Bad Size Error
-        while (SerialBT.available() > 0) {
-          SerialBT.read();
+        if (btBuffer.equals(disconn)) {
+          memset(buffer, 0x00, sizeof(buffer));
+          memset(plaintext, 0x00, TEXT_SIZE);
+          btPosition = 0x00;
+          messageCounter = 0;
+          notify_code = 5;  // "DISCONN"
+        } else {
+          notify_code = 0;  // "ERROR_1"
         }
-        notify_select = 3;
         notify_flag = true;
       }
     }
-  }
-  // ---------------------------------- //
-  
-
-  // IF MESSAGE AVAILABLE ENCRYPT AND SEND ----- //
-  if(!btBuffer.equals("") && btConnected) {
-    Serial.println("-----------------------------");
-    if (encryptMe) {
-      Serial.println("Message ready to send.");
-      Serial.print("Message: ");
-      Serial.println(btBuffer);
-      Serial.println("Encrypting...");
+    if (!setConnect) {
       byte* testMessage = encryptMessage(my_key, outgoingIV, btBuffer);
-
-      // Check that message passed the size check
-      if (outsize > 0) {
+    
+      if (outsize > 0 && outsize < 92) {
         crypto_feed_watchdog();
-
-        Serial.println("Encryption finished!");
-        Serial.println("Sending message...");
-        // Send the message size
+    
         SerialBT.write(((outsize / 100) % 10) + 48);
         SerialBT.write(((outsize / 10) % 10) + 48);
         SerialBT.write((outsize % 10) + 48);
-  
-        // Send the encrypted message
         for (int i = 0; i < outsize; i++) {
           SerialBT.write(testMessage[i]);
         }
-        Serial.println("Message sent!");
-        Serial.println("-----------------------------");
-      } else {
-        // Clear message
-        btBuffer = "";
-        // Notify size error
-        notify_select = 3;
-        notify_flag = true;
       }
-      // Clear the message
-      btBuffer = "";
-      encryptMe = false;
-    } else {
-      Serial.println("Update display");
-      encryptMe = true;
     }
+    messageReady = false;
   }
-  // ---------------------------------- //
 
-  if (notify_flag) {
-    switch (notify_select) {
+  
+  if(notify_flag) {
+    bad_delay = millis();
+    notify_flag = false;
+  }
+  
+  // ---------------------------------- //
+  if((millis() - bad_delay) < 5000) {
+    switch (notify_code) {
       case 1:
-        setMessage(notify_connect);
+        setMessage(disp_tagerr);
         break;
       case 2:
-        setMessage(notify_disconnect);
+        setMessage(disp_poserr);
         break;
       case 3:
-        setMessage(size_error);
+        setMessage(disp_sizeerr);
         break;
       case 4:
-        setMessage(pos_error);
+        setMessage(disp_conn);
         break;
       case 5:
-        setMessage(tag_error);
+        setMessage(disp_disc);
         break;
       default:
-        setMessage(unknown_error);
-    }
-    if (!notify_delay) {
-      notify_delay = millis();
-    }
-    if (millis() - notify_delay > 3000) {
-      notify_flag = false;
-      notify_delay = 0;
+        setMessage(disp_error);
     }
   } else {
     countDisplay();
@@ -473,76 +458,46 @@ void loop() {
 }
 
 
-bool validateCounter() {
-  if (!btConnected) {
-    if (rCounter == 0x00 && btBuffer.equals("<CONNECT>")) {
-      Serial.println("Bluetooth Connected!");
-      mCounter = 0x00;
-      btConnected = true;
-      notify_select = 1;
-      notify_flag = true;
-      return true;
-    } else {
-      // Invalid message purge
-      btBuffer = "";
-      return false;
-    }
-  } else {
-    if (rCounter == 0x00 && btBuffer.equals("<DISCONN>")) {
-      Serial.println("Bluetooth Disconnected!");
-      btConnected = false;
-      mCounter = 0x01;
-      notify_select = 2;
-      notify_flag = true;
-      return true;
-    } else if (rCounter == mCounter) {
-      if (mCounter == 0xFF) {
-        mCounter = 0x01;
-      } else {
-        mCounter += 1;
-      }
-      return true;
-    } else {
-      btBuffer = "";
+bool checksConn(String test) {
+  char checks[9] = { '<', 'C', 'O', 'N', 'N', 'E', 'C', 'T', '>' };  
+  for (int i = 0; i < 9; i++) {
+    if (test[i] != checks[i]) {
       return false;
     }
   }
+  return true;
 }
+
 
 uint8_t* encryptMessage(uint8_t *key, uint8_t *iv, String message) {
   // Declare cipher
   AuthenticatedCipher *cipher = new GCM<AES128>();
 
-  // Container for generated tag
-  uint8_t tag[16];
-
   // Indexing variables
-  size_t pos, len, inc, off_set = IV_SIZE + TAG_SIZE;
-  // 
-  size_t datasize = (message.length() + 1);
-  inc = datasize;
+  size_t datasize, pos, len, inc = datasize = (message.length() + 1), off_set = IV_SIZE + TAG_SIZE;
   outsize = datasize + off_set;
   
   // If message is too big for buffer do not encrypt
-  if (outsize > 100) {
+  if (outsize > 92) {
     outsize = 0;
-    return { 0x00 };
+    notify_code = 3;  // "BAD SIZE"
+    notify_flag = true;
+    return (uint8_t*)fail;
   }
 
-  // Convert message to char array
-  plaintext[0] = mCounter;
+  // Initialize the plaintext array
+  memset(plaintext, 0x00, TEXT_SIZE);
+  
+  // Convert message to array for encryption
+  plaintext[0] = btPosition;
   for (pos = 1; pos < datasize; pos++) {
-    plaintext[pos] = message[pos - 1];
-  }
-  plaintext[datasize] = 0x00;
-
-  // Increment counter
-  if (mCounter == 0xFF) {
-    mCounter = 0x01;
-  } else {
-    mCounter += 1;
+    plaintext[pos] = message[pos];
   }
   
+  
+  // Container for generated tag
+  uint8_t tag[16];
+
   // Keep the watchdog happy
   crypto_feed_watchdog();
 
@@ -567,7 +522,6 @@ uint8_t* encryptMessage(uint8_t *key, uint8_t *iv, String message) {
   // Generate encrypt tag
   cipher->computeTag(tag, sizeof(tag));
 
-  // Prepend the IV and Tag to outgoing message
   // Set IV
   for (pos = 0; pos < IV_SIZE; pos++) {
     buffer[pos] = outgoingIV[pos];
@@ -576,14 +530,16 @@ uint8_t* encryptMessage(uint8_t *key, uint8_t *iv, String message) {
   for (pos = 0; pos < TAG_SIZE; pos++) {
     buffer[pos + IV_SIZE] = tag[pos];
   }
-  
+
   // Clear the cipher
   delete cipher;
+  // Keep the watchdog happy
+  crypto_feed_watchdog();
   return buffer;
 }
 
 
-String decryptMessage(byte* message, int mSize) {
+String decryptMessage(byte* message) {
   // Declare cipher
   AuthenticatedCipher *cipher = new GCM<AES128>();
 
@@ -593,9 +549,16 @@ String decryptMessage(byte* message, int mSize) {
   // Get size of encrypted message
   pos = IV_SIZE + TAG_SIZE;
 
-  datasize = mSize - pos;
+  datasize = btSize - pos;
   
   inc = datasize;
+
+  // If message is too big for buffer do not encrypt fail
+  if (datasize > 64) {
+    notify_code = 3;  // "BAD SIZE"
+    notify_flag = true;
+    return fail;
+  }
 
   // Get Incoming IV value
   for (pos = 0; pos < IV_SIZE; pos++) {
@@ -632,23 +595,47 @@ String decryptMessage(byte* message, int mSize) {
 
   // Validate the message tag
   if (!cipher->checkTag(checktag, sizeof(checktag))) {
-    notify_select = 5;
+    notify_code = 1; // "Bad Tag"
     notify_flag = true;
     return fail;
   }
 
-  // Parse the decrypted message
-  rCounter = buffer[0];
-  pos = 1;
-  while (buffer[pos] != 0x00) {
-    plaintext[pos - 1] = buffer[pos];
-    pos += 1;
-  }
-  plaintext[pos - 1] = 0x00;
-
   // Clear cipher object
   delete cipher;
-  return (char*)plaintext;
+  Serial.println("Check Position");
+  Serial.println(buffer[0]);
+  if (buffer[0] == btPosition) {
+      if (!buffer[0]) {
+        btPosition += 1;
+        setConnect = true;
+        Serial.println("True");
+      } else {
+        // Fail due to message out of order
+        // This is to resist replay attacks
+        notify_code = 2;  // "BAD POS"
+        notify_flag = true;
+        return fail;
+      }
+  } else {
+    if (!buffer[0]) {
+      setConnect = true;
+    } else {
+      if (btPosition == 0xFF) {
+        btPosition = 0x01;
+      } else {
+        btPosition += 1;
+      }
+    }
+  }
+
+
+  for (pos = 1; pos < datasize; pos++) {
+    buffer[pos - 1] = buffer[pos];
+  }
+  buffer[pos - 1] = 0x00;
+  messageReady = true;
+  Serial.println((char*)buffer);
+  return (char*)buffer;
 }
 
 

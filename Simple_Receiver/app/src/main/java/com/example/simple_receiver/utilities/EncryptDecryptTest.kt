@@ -6,6 +6,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import android.util.Log
+import com.example.simple_receiver.mCounter
 
 object EncryptDecryptTest {
 
@@ -23,6 +24,7 @@ object EncryptDecryptTest {
 
 
     fun encrypt(key: SecretKey, message: ByteArray): ByteArray {
+        Log.d("CHECK_MESSAGE", checkHexValues(message))
         val cipher = Cipher.getInstance("AES_128/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key)
         val iv = cipher.iv.copyOf()
@@ -52,9 +54,9 @@ object EncryptDecryptTest {
         return cryptoText
     }
 
-
-    fun parseEncrypt(message: String): ByteArray {
-        val plaintext = message.toByteArray()
+    fun parseEncrypt(message: String, count: UByte): ByteArray {
+        var container = byteArrayOf(count.toByte())
+        val plaintext = container + message.toByteArray()
         val newKey = SecretKeySpec(other_key.toByteArray(), "AES")
         return encrypt(newKey, plaintext)
     }
@@ -67,10 +69,11 @@ object EncryptDecryptTest {
         return cipher.doFinal(ciphertext + tag)
     }
 
-    fun parseDecrypt(message: ByteArray, size: Int): ByteArray {
+    fun parseDecrypt(message: ByteArray, size: Int): Pair<String, UByte> {
         val iv = ByteArray(12)
         val tag = ByteArray(16)
-        val text = ByteArray(size - iv.size - tag.size)
+        val tSize = size - iv.size - tag.size
+        val text = ByteArray(tSize)
 
         for (i in iv.indices) { iv[i] = message[i] }
 
@@ -80,22 +83,25 @@ object EncryptDecryptTest {
             text[i] = message[i + iv.size + tag.size]
         }
 
-
         Log.d("CHECK_IV", checkHexValues(iv))
         //Log.d("CHECK_TAG", checkHexValues(tag))
         //Log.d("CHECK_TEXT", checkHexValues(text))
 
         val newKey = SecretKeySpec(other_key.toByteArray(), "AES")
-        return decrypt(newKey, iv, tag, text)
+
+        val bytetext = decrypt(newKey, iv, tag, text)
+
+        // Get counter value
+        val count = bytetext[0].toUByte()
+
+        // Get string message
+        val pText = String(bytetext.copyOfRange(1, tSize))
+
+        Log.d("CHECK_SUB", pText)
+
+        return Pair(pText, count)
     }
 
-    private fun hexStringToByteArray(hexInputString: String): ByteArray {
-        val bts = ByteArray(hexInputString.length / 2)
-        for (i in bts.indices) {
-            bts[i] = hexInputString.substring(2 * i, 2 * i + 2).toInt(16).toByte()
-        }
-        return bts
-    }
 
     fun checkHexValues(item: ByteArray): String {
         var container: String = ""
@@ -103,5 +109,13 @@ object EncryptDecryptTest {
             container += String.format("%02X ", b)
         }
         return container
+    }
+
+    fun updateCounter() {
+
+    }
+
+    fun checkCounter() {
+
     }
 }

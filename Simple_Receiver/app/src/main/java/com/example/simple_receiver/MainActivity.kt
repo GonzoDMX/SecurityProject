@@ -10,6 +10,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.util.Log
 import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
@@ -43,6 +44,7 @@ var newMessage = ""
 // ByteArray for outgoing messages
 var outgoing: ByteArray = ByteArray(1)
 
+var mCounter: UByte = 1.toUByte()
 
 class MainActivity : AppCompatActivity() {
 
@@ -172,7 +174,12 @@ class MainActivity : AppCompatActivity() {
         newMessage = binding.editOutput.text.toString()
         if (connexion) {
             if (newMessage != "") {
-                outgoing = parseEncrypt(newMessage)
+                // Encrypt the outgoing message
+                outgoing = parseEncrypt(newMessage, mCounter)
+
+                // Increment counter, or roll over if maxed out
+                mCounter = if (mCounter == UByte.MAX_VALUE) { 1.toUByte() } else { mCounter.inc() }
+
                 trigMessage = true
                 msgCount += 1
                 val data = ListData(0, msgCount, "OUT", newMessage)
@@ -191,7 +198,7 @@ class MainActivity : AppCompatActivity() {
         clearDatabase()
         // Définir le message de connexion
         message = "<CONNECT>"
-        outgoing = parseEncrypt(message)
+        outgoing = parseEncrypt(message, 0.toUByte())
         // Déclarer la connexion ouverte
         connexion = true
         // Réinitialiser l'indicateur de fin de connexion
@@ -208,7 +215,7 @@ class MainActivity : AppCompatActivity() {
     private fun setDisconnect() {
         // Définir le message de déconnexion
         message = "<DISCONN>"
-        outgoing = parseEncrypt(message)
+        outgoing = parseEncrypt(message, 0.toUByte())
         // Déclarer la connexion fermée
         connexion = false
         // Modifier le texte sur le bouton de connexion
@@ -278,10 +285,29 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetTextI18n")
     // This function receives and pasres bluetooth messages
     // TODO Messages should be decrypted before arriving at this function
-    fun parseMessage(text: String) {
+    fun parseMessage(text: Pair<String, UByte>) {
         msgCount += 1
-        val data = ListData(0, msgCount, "IN", text)
-        // Write values to Database
+        var data = ListData(0, msgCount, "IN", text.first)
+
+        if (text.second == mCounter) {
+            // Increment counter, or roll over if maxed out
+            mCounter = if (mCounter == UByte.MAX_VALUE) {
+                1.toUByte()
+            } else {
+                mCounter.inc()
+            }
+        } else {
+            if (text.second == 0.toUByte()) {
+                if (text.first == "<CONNECT>") {
+                    Log.d("CHECK_CONN", "Connect")
+                }
+                else if (text.first == "<DISCONN>") {
+                    Log.d("CHECK_CONN", "Disconnect")
+                }
+            } else {
+                data = ListData(0, msgCount, "IN", "<COUNTER FAILED>")
+            }
+        }
         writeToDatabase(data)
     }
 
