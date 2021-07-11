@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <TCS3471.h>
 #include "BluetoothSerial.h"
+#include "esp_gap_bt_api.h"
 #include <Crypto.h>
 #include <AES.h>
 #include <GCM.h>
@@ -267,8 +268,18 @@ void setup() {
 
   delay(1000);
 
+
   // Start BlueTooth, set device name
-  SerialBT.begin("SimpleReceiver");
+  SerialBT.begin("PinTester");
+
+  // Set BT Pin code
+  //esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_FIXED;
+  //esp_bt_pin_code_t pin_code;
+  //pin_code[0] = '1';
+  //pin_code[1] = '1';
+  //pin_code[2] = '1';
+  //pin_code[3] = '1';
+  //esp_bt_gap_set_pin(pin_type, 4, pin_code);
 
   // Start i2C
   Wire.begin();
