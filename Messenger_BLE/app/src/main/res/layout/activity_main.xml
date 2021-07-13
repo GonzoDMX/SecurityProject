@@ -59,12 +59,13 @@
             app:layout_constraintStart_toStartOf="@id/recyclerLog"
             app:layout_constraintBottom_toTopOf="@id/recyclerLog" />
 
+
         <Button
             android:id="@+id/buttonConn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_margin="10dp"
-            android:text="@string/connect"
+            android:text="@string/start_scan"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toTopOf="@id/recyclerLog"
             app:layout_constraintEnd_toEndOf="parent"/>
@@ -73,15 +74,15 @@
             android:id="@+id/recyclerLog"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="5dp"
             android:layout_marginLeft="20dp"
+            android:layout_marginTop="5dp"
             android:layout_marginRight="20dp"
             android:layout_marginBottom="20dp"
             android:background="@drawable/edit_border"
             app:layout_constraintBottom_toTopOf="@id/editOutput"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/textLogLabel"/>
+            app:layout_constraintTop_toBottomOf="@id/textLogLabel" />
 
         <TextView
             android:id="@+id/messageLabel"
