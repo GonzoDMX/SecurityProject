@@ -15,4 +15,6 @@ This is a university project researching security for embedded systems. I take a
 	1. Scan for Bluetooth Classic devices.
 	1. Spoof Bluetooth Classic Devices.
 	1. Brute Force Bluetooth Classic Pins (Only works on devices before Bluetooth 2.1).
+	
+### Related Documentation:
 
