@@ -18,14 +18,20 @@ This is a university project researching security for embedded systems. I take a
 	
 ## Related Documentation:
 
+Example of message format used in Messenger BLE Android App:
 ![](Presentation_Assets/AES-GCM_Message_Format.png)
 
+Android by default enforces random generation of initialization vectors (IV) for ciphers. Although this is generally a good idea, it does open up the remote possibility of reusing an IV. This demonstrates how one could use this possibility to decrypt cipher text. 
 ![](Presentation_Assets/KPAttack_Diagram.png)
 
+Demonstration of a Man in the Middle attack on Bluetooth LE using an Ubertooth One:
 ![](Presentation_Assets/BLE_ManInTheMiddle.png)
 
+Demonstration of how the Spoofing function works on the BT_Blaster:
 ![](Presentation_Assets/BT_Classic_Spoofing.png)
 
+Demonstration of how the BruteForce function works on the BT_Blaster:
 ![](Presentation_Assets/BT_Classic_BruteForce.png)
 
+Overview of my BT_Blaster prototype:
 ![](Presentation_Assets/BT_Blaster_Presentation.png)
