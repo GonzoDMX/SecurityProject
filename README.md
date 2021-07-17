@@ -16,5 +16,16 @@ This is a university project researching security for embedded systems. I take a
 	1. Spoof Bluetooth Classic Devices.
 	1. Brute Force Bluetooth Classic Pins (Only works on devices before Bluetooth 2.1).
 	
-### Related Documentation:
+## Related Documentation:
 
+![](Presentation_Assets/AES-GCM_Message_Format.png)
+
+![](Presentation_Assets/KPAttack_Diagram.png)
+
+![](Presentation_Assets/BLE_ManInTheMiddle.png)
+
+![](Presentation_Assets/BT_Classic_Spoofing.png)
+
+![](Presentation_Assets/BT_Classic_BruteForce.png)
+
+![](Presentation_Assets/BT_Blaster_Presentation.png)
