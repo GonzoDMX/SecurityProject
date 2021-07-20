@@ -25,7 +25,6 @@ This is a university project researching security for embedded systems. I take a
 * Receiver AES128-GCM Firmware - ESP32 firmware, the ESP32 based counter part to Messenger BT Classic.
 	1. Receives messages and then replays the message to the sender.
 * Receiver AES128-GCM DoubleIV Test - A version of the ESP32 Firmware where the encryption algorithm is broken and intentionally uses the same initialisation vector for every message. It was used to demonstrate a Crib Dragging attack.
-* 	
 	
 ## Related Documentation:
 
