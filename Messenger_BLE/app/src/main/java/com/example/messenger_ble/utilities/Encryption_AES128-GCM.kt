@@ -24,7 +24,7 @@ object `Encryption_AES128-GCM` {
 
 
     fun encrypt(key: SecretKey, message: ByteArray): ByteArray {
-        Log.d("CHECK_MESSAGE", checkHexValues(message))
+        //Log.d("CHECK_MESSAGE", checkHexValues(message))
         val cipher = Cipher.getInstance("AES_128/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key)
         val iv = cipher.iv.copyOf()
@@ -50,7 +50,7 @@ object `Encryption_AES128-GCM` {
             cryptoText[i + 3 + encrypted.iv.size + encrypted.tag.size] = encrypted.ciphertext[i]
         }
 
-        Log.d("CHECK_ENCRYPT", checkHexValues(cryptoText))
+        //Log.d("CHECK_ENCRYPT", checkHexValues(cryptoText))
         return cryptoText
     }
 
@@ -83,7 +83,7 @@ object `Encryption_AES128-GCM` {
             text[i] = message[i + iv.size + tag.size]
         }
 
-        Log.d("CHECK_IV", checkHexValues(iv))
+        //Log.d("CHECK_IV", checkHexValues(iv))
         //Log.d("CHECK_TAG", checkHexValues(tag))
         //Log.d("CHECK_TEXT", checkHexValues(text))
 
@@ -94,11 +94,23 @@ object `Encryption_AES128-GCM` {
         // Get counter value
         val count = bytetext[0].toUByte()
 
+        Log.d("CountCheck", count.toInt().toString())
+
         // Get string message
         val pText = String(bytetext.copyOfRange(1, tSize))
 
-        Log.d("CHECK_SUB", pText)
+        // If the message is an Ack
+        if (bytetext[1].toUByte() == 6.toUByte()) {
+            if (bytetext.size == 5) {
+                val ack = String(bytetext.copyOfRange(2, tSize))
+                if (ack == "ACK") {
+                    return Pair("${0x06}ACK", count)
+                }
+            }
+        }
 
+        //Log.d("CHECK_SUB", pText)
+        //Log.d("CHECK_CNT", count.toString())
         return Pair(pText, count)
     }
 
@@ -109,13 +121,5 @@ object `Encryption_AES128-GCM` {
             container += String.format("%02X ", b)
         }
         return container
-    }
-
-    fun updateCounter() {
-
-    }
-
-    fun checkCounter() {
-
     }
 }

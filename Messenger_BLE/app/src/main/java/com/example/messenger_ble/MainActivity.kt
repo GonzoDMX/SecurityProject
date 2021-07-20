@@ -38,33 +38,23 @@ import com.example.messenger_ble.data.ListData
 import com.example.messenger_ble.databinding.ActivityMainBinding
 import com.example.messenger_ble.ui.MainViewModel
 import com.example.messenger_ble.ui.MainViewModelFactory
+import com.example.messenger_ble.utilities.`Encryption_AES128-GCM`.checkHexValues
+import com.example.messenger_ble.utilities.`Encryption_AES128-GCM`.parseDecrypt
 import com.example.messenger_ble.utilities.`Encryption_AES128-GCM`.parseEncrypt
 import com.example.messenger_ble.utilities.errorDialog
 import com.example.messenger_ble.utilities.messageToast
 import java.util.*
 
 
-// Declare string, pour passer des messages de MainActivity à BluetoothClient Class
-var message = ""
-// Déclarer l'indicateur d'état de la connexion
-var connexion = false
-// Indicateur de fin de connexion, indique quand l'utilisateur a fermé la connexion pour que le fil puisse se fermer
-var terminateConn = false
-// Set flag to true in order to send a new message
-var trigMessage = false
-// Set new message to send
-var newMessage = ""
-// ByteArray for outgoing messages
-var outgoing: ByteArray = ByteArray(1)
-
-@kotlin.ExperimentalUnsignedTypes
-var mCounter: UByte = 1.toUByte()
-
+@ExperimentalUnsignedTypes
 class MainActivity : AppCompatActivity() {
+
+    private var txCounter: UByte = 1.toUByte()
+    private var rxCounter: UByte = 1.toUByte()
 
     private var msgCount: Int = 0
 
-    private var connectionStatus: String = "Device is not connected."
+    private var connectionStatus: String = "Device not connected."
 
     private lateinit var binding: ActivityMainBinding
 
@@ -79,7 +69,22 @@ class MainActivity : AppCompatActivity() {
 
     lateinit var devCounter : TextView
 
-    lateinit var bluetoothGatt: BluetoothGatt
+    lateinit var myGatt: BluetoothGatt
+
+    // If scanning for BLE Devices toggle scan button label
+    private var isScanning = false
+
+    // Déclarer l'indicateur d'état de la connexion
+    var connexion = false
+        @SuppressLint("UseCompatTextViewDrawableApis")
+        set(value) {
+            field = value
+            val colorInt = ContextCompat.getColor(this, R.color.online_green)
+            runOnUiThread { binding.buttonOnline.compoundDrawableTintList = if (value) ColorStateList.valueOf(colorInt)
+            else ColorStateList.valueOf(Color.RED) }
+            runOnUiThread { binding.buttonConn.text = if (value) "Disconnect"
+            else "Start Scan"}
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,15 +131,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindButtonListeners() {
         binding.buttonConn.setOnClickListener {
-            if (isScanning) {
-                stopBleScan()
-            } else {
+            if (!connexion) {
                 startBleScan()
+            } else {
+                disconnectBle()
             }
         }
 
         binding.buttonSend.setOnClickListener {
-            sendMessage()
+            val message: String = binding.editOutput.text.toString()
+            sendMessage(message)
         }
 
         binding.buttonClear.setOnClickListener {
@@ -151,20 +157,15 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    @kotlin.ExperimentalUnsignedTypes
-    private fun sendMessage() {
-        newMessage = binding.editOutput.text.toString()
+    private fun sendMessage(message: String) {
         if (connexion) {
-            if (newMessage != "") {
-                // Encrypt the outgoing message
-                outgoing = parseEncrypt(newMessage, mCounter)
+            if (message != "") {
+                // Encrypt Outgoing message
+                val cipherText = parseEncrypt(message, txCounter)
+                writeToBLE(cipherText)
 
-                // Increment counter, or roll over if maxed out
-                mCounter = if (mCounter == UByte.MAX_VALUE) { 1.toUByte() } else { mCounter.inc() }
-
-                trigMessage = true
                 msgCount += 1
-                val data = ListData(0, msgCount, "OUT", newMessage)
+                val data = ListData(0, msgCount, "OUT", message)
                 // Write values to Database
                 writeToDatabase(data)
             } else {
@@ -177,111 +178,25 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    @kotlin.ExperimentalUnsignedTypes
-    private fun setConnect() {
-        clearDatabase()
-        // Définir le message de connexion
-        message = "<CONNECT>"
-        outgoing = parseEncrypt(message, 0.toUByte())
-        // Déclarer la connexion ouverte
-        connexion = true
-        // Réinitialiser l'indicateur de fin de connexion
-        terminateConn = false
-        // Modifier le texte sur le bouton de connexion
-        binding.buttonConn.text = "Disconnect"
-        // Réinitialiser le compteur de messages
-        msgCount = 0
-        // Verrouiller le bouton de connexion, évite les erreurs de faux état
-        binding.buttonConn.isEnabled = false
-    }
-
-
-    @kotlin.ExperimentalUnsignedTypes
-    private fun setDisconnect() {
-        // Définir le message de déconnexion
-        message = "<DISCONN>"
-        outgoing = parseEncrypt(message, 0.toUByte())
-        // Déclarer la connexion fermée
-        connexion = false
-        // Modifier le texte sur le bouton de connexion
-        binding.buttonConn.text = "Connect"
-        // Définir l'indicateur pour fermer le thread client
-        terminateConn = true
-    }
-
-
-    // réinitialiser l'etat de la connexion
-    fun resetConnection(){
-        // Déclarer la connexion fermée
-        connexion = false
-        // Déclarer la connexion fermée
-        terminateConn = true
-        // Modifier le texte sur le bouton de connexion
-        binding.buttonConn.text = "Connect"
-    }
-
-
-    // Déverrouille le bouton de connexion
-    fun unlockButton(){
-        // Définir le bouton sur actif
-        binding.buttonConn.isEnabled = true
-    }
-
 
     // Receive and parse bluetooth messages
     // TODO Messages should be decrypted before arriving at this function
     @SuppressLint("SetTextI18n")
-    @kotlin.ExperimentalUnsignedTypes
     fun parseMessage(text: Pair<String, UByte>) {
         msgCount += 1
-        var data = ListData(0, msgCount, "IN", text.first)
+        val data = ListData(0, msgCount, "IN", text.first)
 
-        if (text.second == mCounter) {
+        if (text.second == rxCounter) {
             // Increment counter, or roll over if maxed out
-            mCounter = if (mCounter == UByte.MAX_VALUE) {
-                1.toUByte()
+            rxCounter = if (rxCounter == UByte.MAX_VALUE) {
+                0.toUByte()
             } else {
-                mCounter.inc()
+                rxCounter.inc()
             }
         } else {
-            if (text.second == 0.toUByte()) {
-                if (text.first == "<CONNECT>") {
-                    Log.d("CHECK_CONN", "Connect")
-                }
-                else if (text.first == "<DISCONN>") {
-                    Log.d("CHECK_CONN", "Disconnect")
-                }
-            } else {
-                data = ListData(0, msgCount, "IN", "<COUNTER FAILED>")
-            }
+            Log.d("BadCounter", "${text.second}")
         }
         writeToDatabase(data)
-    }
-
-
-    @SuppressLint("UseCompatTextViewDrawableApis")
-    private fun parseConnectionStatus(msg: String) {
-        // Si le message reçu correspond
-        when (msg) {
-            "<CON>GOOD_CON\r\n" -> {
-                connectionStatus = "Device is connected."
-                val colorInt = ContextCompat.getColor(this, R.color.online_green)
-                binding.buttonOnline.compoundDrawableTintList = ColorStateList.valueOf(colorInt)
-            }
-            "<CON>GOOD_DIS\r\n" -> {
-                connectionStatus = "Device is not connected."
-                val colorInt = ContextCompat.getColor(this, R.color.offline_gray)
-                binding.buttonOnline.compoundDrawableTintList = ColorStateList.valueOf(colorInt)
-            }
-            "<MSG>ERROR(1)" -> {
-                connectionStatus = "There is a connection error."
-                binding.buttonOnline.compoundDrawableTintList = ColorStateList.valueOf(Color.RED)
-            }
-            else -> {
-                connectionStatus = "There is a connection error"
-                binding.buttonOnline.compoundDrawableTintList = ColorStateList.valueOf(Color.RED)
-            }
-        }
     }
 
 
@@ -311,16 +226,6 @@ class MainActivity : AppCompatActivity() {
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
 
-
-    /*
-    // Declare UUID for scan filter
-    private val UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-
-    // Filter for BLE Scan
-    val filterUART = ScanFilter.Builder().setServiceUuid(
-        ParcelUuid.fromString(UART_SERVICE_UUID)
-    ).build()
-    */
 
 
     // On Resume check that Bluetooth is Enabled, else prompt user
@@ -418,13 +323,21 @@ class MainActivity : AppCompatActivity() {
             dialog.setAdapter(mArrayAdapter) { _, which: Int ->
                 btStart(this, devices[which])
             }
-            dialog.setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
+            dialog.setNegativeButton("Cancel") { dlg, _ ->
+                dlg.dismiss()
             }
             dialog.show()
         } else {
             errorDialog(this, "No devices detected!")
         }
+    }
+
+    private fun disconnectBle() {
+        connectionStatus = "Device not connected"
+        connexion = false
+        myGatt.close()
+        txCounter = 1.toUByte()
+        rxCounter = 1.toUByte()
     }
 
 
@@ -445,7 +358,7 @@ class MainActivity : AppCompatActivity() {
                             "Name: ${name ?: "UnNamed"}, address: $address")
                 }
                 devices.add(result.device)
-                var dCnt = devices.size
+                val dCnt = devices.size
                 devCounter.text = dCnt.toString()
                 mArrayAdapter!!.add((if (result.device.name != null)
                     result.device.name else "Unknown") + "\n" +
@@ -458,38 +371,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-    // If scanning for BLE Devices toggle scan button label
-    private var isScanning = false
-        //Save Setter example for future use
-        //set(value) {
-        //    field = value
-        //    runOnUiThread { binding.buttonConn.text = if (value) "Stop Scan"
-        //                    else "Start Scan" }
-        //}
-
-
     // CHECK HERE TRY TO FIND WHY CONNECTION FAILS
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            val deviceAddress: String = gatt.device.address
+            val dAddr: String = gatt.device.address
+            val dName: String = gatt.device.name
             Log.d("BT_STATUS", status.toString())
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    Log.w("BluetoothGattCallback",
-                            "Successfully connected to $deviceAddress")
-                    this@MainActivity.bluetoothGatt = gatt
+                    // Set message for connection status toast
+                    this@MainActivity.connectionStatus = "Connected to $dName"
+                    connexion = true
+                            Log.w("BluetoothGattCallback",
+                            "Successfully connected to $dAddr")
+                    this@MainActivity.myGatt = gatt
                     Handler(Looper.getMainLooper()).post {
-                        bluetoothGatt.discoverServices()
+                        myGatt.discoverServices()
                     }
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.w("BluetoothGattCallback",
-                            "Successfully disconnected from $deviceAddress")
+                            "Successfully disconnected from $dAddr")
                     gatt.close()
+                    connexion = false
+                    this@MainActivity.connectionStatus = "Device not connected"
                 }
             } else {
                 Log.w("BluetoothGattCallback",
-                        "Error $status encountered for $deviceAddress! Disconnecting...")
+                        "Error $status encountered for $dAddr! Disconnecting...")
                 gatt.close()
             }
         }
@@ -498,6 +406,59 @@ class MainActivity : AppCompatActivity() {
                 Log.w("BluetoothGattCallback",
                         "Discovered ${services.size} services for ${device.address}")
                 printGattTable()
+                val mtuSize = 515
+                myGatt.requestMtu(mtuSize)
+            }
+        }
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            super.onMtuChanged(gatt, mtu, status)
+            Log.d("GattCallback", "ATT MTU Size changed to: $mtu")
+            testRead()
+        }
+        override fun onCharacteristicChanged(gatt: BluetoothGatt?,
+                                             characteristic: BluetoothGattCharacteristic?) {
+            with (characteristic) {
+                Log.d("GattNotify", "Notify on ${this?.uuid} | value: ${checkHexValues(this!!.value)}")
+                if (!this?.value?.equals(null)!!) {
+                    receiveFromBLE(value)
+                }
+            }
+        }
+        override fun onCharacteristicRead(gatt: BluetoothGatt?,
+                                          characteristic: BluetoothGattCharacteristic?,
+                                          status: Int) {
+            with (characteristic) {
+                when (status) {
+                    BluetoothGatt.GATT_SUCCESS -> {
+                        Log.d("GattRead", "Read ${this?.uuid} \nvalue: ${this?.value?.toUByteArray()}")
+                    }
+                    BluetoothGatt.GATT_READ_NOT_PERMITTED -> {
+                        Log.d("GattRead", "Read not permitted!")
+                    }
+                    else -> {
+                        Log.d("GattRead", "Read failed! error: $status")
+                    }
+                }
+            }
+        }
+        override fun onCharacteristicWrite(gatt: BluetoothGatt,
+                                           characteristic: BluetoothGattCharacteristic,
+                                           status: Int) {
+            with (characteristic) {
+                when (status) {
+                    BluetoothGatt.GATT_SUCCESS -> {
+                        Log.d("GattWrite", "Wrote to $uuid | value: ${checkHexValues(value)}")
+                    }
+                    BluetoothGatt.GATT_INVALID_ATTRIBUTE_LENGTH -> {
+                        Log.d("GattWrite", "Write exceeds ATT MTU")
+                    }
+                    BluetoothGatt.GATT_WRITE_NOT_PERMITTED -> {
+                        Log.d("GattWrite", "Write not permitted for $uuid")
+                    }
+                    else -> {
+                        Log.d("GattWrite", "Write failed! error: $status")
+                    }
+                }
             }
         }
     }
@@ -520,6 +481,105 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    val uartServiceUuid = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
+    val uartTxUuid = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+    val uartRxUuid = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+
+
+    private fun writeToBLE(outgoing: ByteArray) {
+        val gattChar = myGatt.getService(uartServiceUuid).getCharacteristic(uartTxUuid)
+        val writeType = when {
+            gattChar.isWritable() -> {
+                Log.d("GattWrite", "Type: With Response")
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            }
+            gattChar.isWritableWithoutResponse() -> {
+                Log.d("GattWrite", "Type: No Response")
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            }
+            else -> Log.d("GattCharError", "Characteristic is not writable")
+        }
+        myGatt.let {gatt ->
+            gattChar.writeType = writeType
+            gattChar.value = outgoing
+            gatt.writeCharacteristic(gattChar)
+        }
+    }
+
+    private fun receiveFromBLE(received: ByteArray): String {
+        val cipherText: ByteArray = received.drop(3).toByteArray()
+        val plainText = parseDecrypt(cipherText, cipherText.size)
+        if (plainText.first == "${0x06}ACK") {
+            if (plainText.second == UByte.MAX_VALUE) {
+                txCounter = 0.toUByte()
+            } else {
+                txCounter = plainText.second
+                txCounter = txCounter.inc()
+            }
+        } else {
+            parseMessage(plainText)
+        }
+        return plainText.first
+    }
+
+    private fun testRead() {
+        val gattChar = myGatt.getService(uartServiceUuid).getCharacteristic(uartRxUuid)
+        if (gattChar.isReadable()) {
+            Log.d("GattRead", "Attempting to read")
+            myGatt.readCharacteristic(gattChar)
+        }
+        if (gattChar.isIndicatable()) {
+            Log.d("GattRead", "It is indicatable")
+        }
+        if (gattChar.isNotifiable()) {
+            Log.d("GattRead", "It is Notifiable")
+            enableNotifiactions(gattChar)
+        }
+    }
+
+
+    fun enableNotifiactions(characteristic: BluetoothGattCharacteristic) {
+        val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        val payload: ByteArray = when {
+            characteristic.isIndicatable() -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            characteristic.isNotifiable() -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            else -> {
+                Log.d("GattDescriptor", "${characteristic.uuid} doesn't support this")
+                return
+            }
+        }
+        characteristic.getDescriptor(cccdUuid)?.let { cccDescriptor ->
+            if (!myGatt.setCharacteristicNotification(characteristic, true)) {
+                Log.d("GattDescriptor", "Set notify failed for ${characteristic.uuid}")
+                return
+            }
+            writeDescriptor(cccDescriptor, payload)
+        } ?: Log.d("GattDescriptor", "${characteristic.uuid} doesn't contain the CCC Descriptor")
+    }
+
+    fun writeDescriptor(descriptor: BluetoothGattDescriptor, payload: ByteArray) {
+        myGatt.let { gatt ->
+            descriptor.value = payload
+            gatt.writeDescriptor(descriptor)
+        }
+    }
+
+
+    // For determining characteristics of a BLE UUID Property Readable, Writable etc...
+    fun BluetoothGattCharacteristic.isReadable(): Boolean =
+            containsProperty(BluetoothGattCharacteristic.PROPERTY_READ)
+    fun BluetoothGattCharacteristic.isWritable(): Boolean =
+            containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE)
+    fun BluetoothGattCharacteristic.isWritableWithoutResponse(): Boolean =
+            containsProperty(BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)
+    fun BluetoothGattCharacteristic.isIndicatable(): Boolean =
+            containsProperty(BluetoothGattCharacteristic.PROPERTY_INDICATE)
+    fun BluetoothGattCharacteristic.isNotifiable(): Boolean =
+            containsProperty(BluetoothGattCharacteristic.PROPERTY_NOTIFY)
+    fun BluetoothGattCharacteristic.containsProperty(property: Int): Boolean {
+        return properties and property != 0
+    }
+
 
     // On close activity
     override fun onDestroy() {
@@ -527,6 +587,13 @@ class MainActivity : AppCompatActivity() {
         if (isScanning) {
             bleScanner.stopScan(scanCallback)
             isScanning = false
+        }
+        if (connexion) {
+            connectionStatus = "Device not connected"
+            connexion = false
+            myGatt.close()
+            txCounter = 1.toUByte()
+            rxCounter = 1.toUByte()
         }
     }
 }

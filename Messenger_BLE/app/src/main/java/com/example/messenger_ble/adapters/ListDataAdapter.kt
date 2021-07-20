@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.messenger_ble.MainActivity
 import com.example.messenger_ble.R
-import com.example.messenger_ble.connexion
 import com.example.messenger_ble.data.ListData
 
 class ListDataAdapter(activity: MainActivity) :
@@ -39,13 +38,11 @@ class ListDataAdapter(activity: MainActivity) :
 
     private fun setClickListeners(holder: ClickViewHolder) {
         holder.itemView.setOnClickListener {
-            if (!connexion) {
-                if (currentHolder != null) {
-                    currentHolder!!.itemView.setBackgroundColor(Color.WHITE)
-                }
-                currentHolder = holder
-                holder.itemView.setBackgroundColor(selColor)
+            if (currentHolder != null) {
+                currentHolder!!.itemView.setBackgroundColor(Color.WHITE)
             }
+            currentHolder = holder
+            holder.itemView.setBackgroundColor(selColor)
         }
     }
 
