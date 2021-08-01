@@ -14,6 +14,8 @@ import os
 import csv
 
 parse_dir = False
+bad_char = ""
+bad_name_err = False
 not_btle_err = False
 no_pcap_err = False
 
