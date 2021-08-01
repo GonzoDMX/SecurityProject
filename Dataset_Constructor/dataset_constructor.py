@@ -14,8 +14,6 @@ import os
 import csv
 
 parse_dir = False
-bad_char = ""
-bad_name_err = False
 not_btle_err = False
 no_pcap_err = False
 
@@ -41,10 +39,13 @@ def check_dir_exists(p_dir):
 	
 # Check that output name is valid
 def validate_name(o_name):
+	if o_name.endswith(".csv"):
+		o_name.replace(".csv", "")
 	prohibited = ["/", "\\", "?", "%", "*", ":", "|", "\"", "<", ">", ";", ",", "=", "."]
 	for char in prohibited:
 		if char in o_name:
 			raise argparse.ArgumentTypeError("Output name cannot contain \'{0}\'".format(char))
+	o_name = o_name + ".csv"
 	return o_name
 
 
@@ -116,6 +117,7 @@ parser.add_argument("--mac-filter", nargs="+", default=[], required=False,
 args = parser.parse_args()
 
 
+print(args.out_name)
 
 # Parse the supplied pcap file or directory
 try:
