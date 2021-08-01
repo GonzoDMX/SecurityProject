@@ -86,6 +86,8 @@ class MainActivity : AppCompatActivity() {
             else "Start Scan"}
         }
 
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -139,8 +141,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.buttonSend.setOnClickListener {
-            val message: String = binding.editOutput.text.toString()
-            sendMessage(message)
+            if (connexion) {
+                val message: String = binding.editOutput.text.toString()
+                sendMessage(message)
+            } else {
+
+            }
         }
 
         binding.buttonClear.setOnClickListener {
@@ -158,21 +164,17 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun sendMessage(message: String) {
-        if (connexion) {
-            if (message != "") {
-                // Encrypt Outgoing message
-                val cipherText = parseEncrypt(message, txCounter)
-                writeToBLE(cipherText)
+        if (message != "") {
+            // Encrypt Outgoing message
+            val cipherText = parseEncrypt(message, txCounter)
+            writeToBLE(cipherText)
 
-                msgCount += 1
-                val data = ListData(0, msgCount, "OUT", message)
-                // Write values to Database
-                writeToDatabase(data)
-            } else {
-                messageToast(this, "Cannot send NULL message.")
-            }
+            msgCount += 1
+            val data = ListData(0, msgCount, "OUT", message)
+            // Write values to Database
+            writeToDatabase(data)
         } else {
-            messageToast(this, connectionStatus)
+            messageToast(this, "Cannot send NULL message.")
         }
         binding.editOutput.setText("")
     }
@@ -180,7 +182,6 @@ class MainActivity : AppCompatActivity() {
 
 
     // Receive and parse bluetooth messages
-    // TODO Messages should be decrypted before arriving at this function
     @SuppressLint("SetTextI18n")
     fun parseMessage(text: Pair<String, UByte>) {
         msgCount += 1
@@ -266,7 +267,11 @@ class MainActivity : AppCompatActivity() {
         if (!isLocationPermissionGranted) {
             messageToast(this, "Location access required\n to scan BLE devices.")
         }
+        else if (!bluetoothAdapter.isEnabled) {
+            promptEnableBluetooth()
+        }
         else {
+            clearDatabase()
             devices.clear()
             mArrayAdapter!!.clear()
             bleScanner.startScan(null, scanSettings, scanCallback)
@@ -333,11 +338,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun disconnectBle() {
-        connectionStatus = "Device not connected"
-        connexion = false
-        myGatt.close()
-        txCounter = 1.toUByte()
-        rxCounter = 1.toUByte()
+        this.connectionStatus = "Device not connected"
+        this.connexion = false
+        this.myGatt.close()
+        this.txCounter = 1.toUByte()
+        this.rxCounter = 1.toUByte()
     }
 
 
@@ -391,14 +396,12 @@ class MainActivity : AppCompatActivity() {
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     Log.w("BluetoothGattCallback",
                             "Successfully disconnected from $dAddr")
-                    gatt.close()
-                    connexion = false
-                    this@MainActivity.connectionStatus = "Device not connected"
+                    disconnectBle()
                 }
             } else {
                 Log.w("BluetoothGattCallback",
                         "Error $status encountered for $dAddr! Disconnecting...")
-                gatt.close()
+                disconnectBle()
             }
         }
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
