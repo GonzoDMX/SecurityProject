@@ -5,46 +5,8 @@
 	Script for parsing BTLE Pcaps
 	This script creates a dataset output as a .csv file
 	It is used for training a neural network
-
-"""
-
-import pyshark
-import argparse
-import os
-import csv
-import string
-
-parse_dir = False
-not_btle_err = False
-no_pcap_err = False
-
-
-# CSV file write path
-output_path = ""
-
-start_time = 0.0
-sample_size = 0.25
-
-
-""" ----- DATASET SAMPLE DATA POINTS -----"""
-# List of dictionary objects for writing dataset to csv file
-dataset = []
-dataset_header = [	"DATA_SIZE",
-					"ADV_IND", 
-					"ADV_DIRECT_IND", 
-					"ADV_NONCONN_IND", 
-					"ADV_SCAN_IND",
-					"SCAN_REQ",
-					"SCAN_RSP",
-					"CONNECT_REQ", 
-					"BAD_CRC", 
-					"MALFORMED_PACKETS",
-					"ATTACK" ]
-
-# Cound total bytes sent over sample period
-data_size = 0
-
-""" 
+	
+	
 	----- List of PDU Types -----
 
 	Advertising PDUs:
@@ -59,29 +21,126 @@ data_size = 0
 	
 	Initiating PDUs:
 			CONNECT_REQ		(0x5)		Connection request
+
 """
-# Count number of each PDU type received in sample
-adv_ind = 0
-adv_dir = 0
-adv_non = 0
-adv_scn = 0
-scn_req = 0
-scn_rsp = 0
-con_req = 0
 
-# Count number of malformed packets received in sample
-malformed = 0
+import pyshark
+import argparse
+import os
+import csv
+import string
 
-# Count total number of bad CRC checks over sample period
-crc_bad = 0
+parse_dir = False
+not_btle_err = False
+no_pcap_err = False
+
+dataset = None
+
+# CSV file write path
+output_path = ""
 
 
-# Flag a sample that contains an attack
-#	0 = No Attack
-#	1 = Jamming
-#	2 = Hijacking
-#	3 = Mitm
-attack = 0
+""" ----- DATASET SAMPLE DATA POINTS -----"""
+class PCAP_Dataset:
+	def __init__(self, sample_size):
+		# Store start time, used when analyzing multiple pcap files
+		self.start = 0.0
+
+		# Set size of sample in seconds
+		if float(sample_size) > 0.0:
+			self.size = sample_size
+		else:
+			self.size = 0.25
+
+		# Set dictionary keys and 
+		self.header = [	"ADDR_COUNT",	# cap[i][1].scanning_address \\ cap[i][1].advertising_address
+						"CHAN_COUNT",	# cap[i][0].channel
+						"DATA_SIZE",	# cap[i][1].length
+						"ADV_IND", 		# cap[i][1].advertising_header_pdu_type 
+						"ADV_DIRECT_IND",	# "
+						"ADV_NONCONN_IND", 	# "
+						"ADV_SCAN_IND",		# "
+						"SCAN_REQ",			# "
+						"SCAN_RSP",			# "
+						"CONNECT_REQ",		# "
+						"AVG_RSSI", 		# cap[i][0].rssi
+						"BAD_CRC", 			# cap[i][0].crc_bad
+						"ATTACK" ]
+		# Declare index for accessing current sample
+		self.i = 0
+		
+		# Dictionary template for building a sample
+		self.template = {}
+		
+		# List of dictionary objects for writing dataset to csv file
+		self.sample = []
+
+		# Initialize sample
+		for item in self.header:
+			self.template[item] = 0
+		self.sample.append(self.template.copy())
+
+		# List contains all unique addresses in a sample
+		# The list is used to count number of unique addresses
+		self.addr_list = []
+
+		# List contains all unique channels in a sample
+		self.chan_list = []
+
+		# Average the RSSI value of captured packets
+		self.rssi_list = []
+
+		# Flag a sample that contains an attack
+		#	0 = No Attack
+		#	1 = Jamming
+		#	2 = Hijacking
+		#	3 = Mitm
+		self.attack = 0
+	
+	# Create a new empty sample
+	def add_sample(self):
+		self.i += 1
+		self.sample.append(self.template.copy())
+		self.addr_list = []
+		self.chan_list = []
+		self.rssi_list = []
+		
+	# If address is new, add to list and increment count
+	def add_address(self, addr):
+		if addr not in self.addr_list:
+			self.addr_list.append(addr)
+			self.sample[self.i]["ADDR_COUNT"] = len(self.addr_list)
+		
+	# If channel is new, add to list and increment count
+	def add_channel(self, chan):
+		if chan not in self.chan_list:
+			self.chan_list.append(chan)
+			self.sample[self.i]["CHAN_COUNT"] = len(self.chan_list)
+		
+	# Increment the corresponding PDU Type
+	def set_pdu(self, pdu):
+		if not pdu:
+			self.sample[self.i]["ADV_IND"] += 1
+		elif pdu == 1:
+			self.sample[self.i]["ADV_DIRECT_IND"] += 1
+		elif pdu == 2:
+			self.sample[self.i]["ADV_NONCONN_IND"] += 1
+		elif pdu == 6:
+			self.sample[self.i]["ADV_SCAN_IND"] += 1
+		elif pdu == 3:
+			self.sample[self.i]["SCAN_REQ"] += 1
+		elif pdu == 4:
+			self.sample[self.i]["SCAN_RSP"] += 1
+		elif pdu == 5:
+			self.sample[self.i]["CONNECT_REQ"] += 1
+			
+	# Update the RSSI average
+	def set_rssi(self, rssi):
+		self.rssi_list.append(rssi)
+		rssi_sum = 0
+		for r in self.rssi_list:
+			rssi_sum += r
+		self.sample[self.i]["AVG_RSSI"] = rssi_sum / len(self.rssi_list)	
 
 """ --------------------------------------"""
 
@@ -145,11 +204,11 @@ def set_output_path(name, directory):
 	
 ''' Set the sample size of dataset '''
 def set_sample_size(size):
-	global sample_size
-	if size:
-		sample_size = float(size)
-	print("Sample size set to: " + str(sample_size) + " seconds")
-	return float(size)
+	try:
+		return float(size)
+	except ValueError:
+		print("Error: Provided sample size is invalid")
+		return 0.25
 	
 
 ''' verify that pcaps are BTLE protocol '''
@@ -192,44 +251,77 @@ def check_dir_btle(p_files):
 ''' Write the dataset to a csv output file '''
 def write_to_csv():
 	global dataset
-	global dataset_header
 	try:
 		with open(output_path, 'w') as csv_file:
-			writer = csv.DictWriter(csv_file, fieldnames = dataset_header)
+			writer = csv.DictWriter(csv_file, fieldnames = dataset.header)
 			writer.writeheader()
-			for data in dataset:
+			for data in dataset.sample:
 				writer.writerow(data)
 	except Exception as e:
+		print("write_to_csv error")
 		print(e)
 
-#TODO
-""" $$$$$$$$$$$$$$$$ TODO $$$$$$$$$$$$$$$$$$$$$$ """
-# Parse PCAP and build sample frame here
-def build_sample_frame(cap):
-	global crc_bad
-	global data_size
-	global malformed
-	
-	pdu_type = int(cap[index][1].advertising_header_pdu_type)
-	
-	if pdu_type == 3:
-		print("Scanning")
-		bd_addr = cap[index][0].scanning_address
-	elif pdu_type == 5:
-		print("Connecting")
-	else:
-		print("Advertising")
-		bd_addr = cap[index][0].advertising_address
-	
-	# Check if CRC is bad -> Get total number of bad CRCs per sample
-	if cap[index][0].crc_bad == "CRC is bad":
-		crc_bad += 1
-		
-	# Get total packet size -> Get total data amount sent over sample period
-	p_size = int(cap[index][1].length)
-	data_size += p_size
-""" $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ """
 
+''' Gather information and parse from an individual packet'''
+def analyse_packet(cap, i):
+	global dataset
+	try:
+		# Append new addresses to addr_list
+		dataset.add_address(cap[i][1].scanning_address)
+	except AttributeError:
+		pass
+		
+	try:
+		dataset.add_address(cap[i][1].advertising_address)
+	except AttributeError:
+		pass
+		
+	try:
+		# Append new channels
+		dataset.add_channel(cap[i][0].channel)
+	except AttributeError:
+		pass
+		
+	try:
+		# Add size of packet to total datasize
+		dataset.sample[dataset.i]["DATA_SIZE"] += int(cap[i][1].length)
+	except AttributeError:
+		pass
+		
+	try:		
+		# Add pdu type to corresponding pdu
+		dataset.set_pdu(int(cap[i][1].advertising_header_pdu_type))
+	except AttributeError:
+		pass
+		
+	try:
+		# Add packet rssi to sample rssi average
+		dataset.set_rssi(int(cap[i][0].rssi))
+	except AttributeError:
+		pass
+		
+	try:
+		# Check if CRC is bad -> Get total number of bad CRCs per sample
+		if cap[i][0].crc_bad == "CRC is bad":
+			dataset.sample[dataset.i]["BAD_CRC"] += 1
+	except AttributeError:
+		pass
+
+
+''' Iterate through all packets in pcap and break into samples '''
+def parse_pcap_samples(cap, count):
+	global dataset
+	# Iterate through all packets
+	for i in range(0, count):
+		time = float(cap[i].frame_info.time_relative) - dataset.start
+		if time > dataset.size:
+			dataset.start += dataset.size
+			print("Split at packet: " + str(i))
+			print("sample" + str(dataset.i + 1))
+			dataset.add_sample()
+		analyse_packet(cap, i)
+	write_to_csv()
+		
 
 # Setup argparse for recovering command line arguments
 parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
@@ -259,7 +351,7 @@ parser.add_argument("--mac-filter", nargs="+", default=[], required=False,
 					"output data will only include packets with BD_ADDRs in list.")
 
 parser.add_argument("--sample-size", dest="sample_size", required=False,
-					metavar='\b', type=set_sample_size,
+					metavar='\b', type=set_sample_size, default="0.0",
 					help="Set packet sample size in seconds.")
 args = parser.parse_args()
 
@@ -267,6 +359,8 @@ args = parser.parse_args()
 # Set output file name and path
 set_output_path(args.out_name, args.out_dir)
 
+# Declare dataset
+dataset = PCAP_Dataset(args.sample_size)
 		
 # Parse the supplied pcap file or directory
 try:
@@ -285,7 +379,7 @@ try:
 			print(f)
 		
 	else:
-		# TODO Build handling for parsing single files
+		# Build handling for parsing single files
 		print("Loading PCAP File: " + args.pcap_path)
 		# Use pyshark to read the selected PCAP file
 		cap = pyshark.FileCapture(args.pcap_path)
@@ -293,19 +387,13 @@ try:
 		if check_btle_protocol(cap[0].frame_info.protocols):
 			# Get number of packets in pcap, they must be loaded first
 			cap.load_packets()
+			count = len(cap)
+			
 			print("Number of packets in pcap:" + str(len(cap)))
 			
-			# Returns delta time as string
-			# print(cap[1][0].delta_time)
+			# Parse pcap file and build samples
+			parse_pcap_samples(cap, count)
 
-			# Returns delta time as int
-			# print(int(cap[1][0].delta_time))
-
-			# Print Packet[1] Layer[0]
-			print(cap[1][0])
-
-			# Print Packet[1] Layer[1]
-			print(cap[1][1])
 		else:
 			not_btle_err = True
 			raise TypeError
@@ -324,8 +412,6 @@ except IndexError as e:
 	else:
 		print(e)		
 
-except Exception as e:
-	print(e)
 
 
 
