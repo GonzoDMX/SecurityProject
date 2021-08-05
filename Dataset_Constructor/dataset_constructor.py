@@ -39,6 +39,15 @@ dataset = None
 # CSV file write path
 output_path = ""
 
+# Flag a sample that contains an attack
+#		0 = No Attack
+#		1 = Jamming
+#		2 = Hijacking
+#		3 = Mitm
+attack = 0
+
+# Holds last time of last packet in pcap file
+roll_over = 0.0
 
 """ ----- DATASET SAMPLE DATA POINTS -----"""
 class PCAP_Dataset:
@@ -90,13 +99,6 @@ class PCAP_Dataset:
 		# Average the RSSI value of captured packets
 		self.rssi_list = []
 
-		# Flag a sample that contains an attack
-		#	0 = No Attack
-		#	1 = Jamming
-		#	2 = Hijacking
-		#	3 = Mitm
-		self.attack = 0
-	
 	# Create a new empty sample
 	def add_sample(self):
 		self.i += 1
@@ -252,6 +254,7 @@ def check_dir_btle(p_files):
 def write_to_csv():
 	global dataset
 	try:
+		print("Writing to CSV file...")
 		with open(output_path, 'w') as csv_file:
 			writer = csv.DictWriter(csv_file, fieldnames = dataset.header)
 			writer.writeheader()
@@ -265,63 +268,90 @@ def write_to_csv():
 ''' Gather information and parse from an individual packet'''
 def analyse_packet(cap, i):
 	global dataset
-	try:
-		# Append new addresses to addr_list
-		dataset.add_address(cap[i][1].scanning_address)
-	except AttributeError:
-		pass
-		
-	try:
-		dataset.add_address(cap[i][1].advertising_address)
-	except AttributeError:
-		pass
-		
-	try:
-		# Append new channels
-		dataset.add_channel(cap[i][0].channel)
-	except AttributeError:
-		pass
-		
-	try:
-		# Add size of packet to total datasize
-		dataset.sample[dataset.i]["DATA_SIZE"] += int(cap[i][1].length)
-	except AttributeError:
-		pass
-		
-	try:		
-		# Add pdu type to corresponding pdu
-		dataset.set_pdu(int(cap[i][1].advertising_header_pdu_type))
-	except AttributeError:
-		pass
-		
-	try:
-		# Add packet rssi to sample rssi average
-		dataset.set_rssi(int(cap[i][0].rssi))
-	except AttributeError:
-		pass
-		
-	try:
-		# Check if CRC is bad -> Get total number of bad CRCs per sample
-		if cap[i][0].crc_bad == "CRC is bad":
-			dataset.sample[dataset.i]["BAD_CRC"] += 1
-	except AttributeError:
-		pass
+	global attack
+	for ind in range(0, 7):
+		try:
+			if ind == 0:
+				# Append new addresses to addr_list
+				dataset.add_address(cap[i][1].scanning_address)
+
+			elif ind == 1:
+				dataset.add_address(cap[i][1].advertising_address)
+
+			elif ind == 2:
+				# Append new channels
+				dataset.add_channel(cap[i][0].channel)
+
+			elif ind == 3:
+				# Add size of packet to total datasize
+				dataset.sample[dataset.i]["DATA_SIZE"] += int(cap[i][1].length)
+
+			elif ind == 4:
+				# Add pdu type to corresponding pdu
+				dataset.set_pdu(int(cap[i][1].advertising_header_pdu_type))
+
+			elif ind == 5:
+				# Add packet rssi to sample rssi average
+				dataset.set_rssi(int(cap[i][0].rssi))
+
+			elif ind == 6:
+				# Check if CRC is bad -> Get total number of bad CRCs per sample
+				if cap[i][0].crc_bad == "CRC is bad":
+					dataset.sample[dataset.i]["BAD_CRC"] += 1
+		except AttributeError:
+			continue
+	dataset.sample[dataset.i]["ATTACK"] = attack
 
 
 ''' Iterate through all packets in pcap and break into samples '''
 def parse_pcap_samples(cap, count):
 	global dataset
+	global roll_over
 	# Iterate through all packets
 	for i in range(0, count):
-		time = float(cap[i].frame_info.time_relative) - dataset.start
+		p_time = float(cap[i].frame_info.time_relative)
+		time = p_time + roll_over - dataset.start
 		if time > dataset.size:
 			dataset.start += dataset.size
 			print("Split at packet: " + str(i))
 			print("sample" + str(dataset.i + 1))
 			dataset.add_sample()
 		analyse_packet(cap, i)
-	write_to_csv()
+	# Set roll_over time for processing multiple packets
+	roll_over = p_time + roll_over
+
 		
+''' Iterate through all pcap files and break into samples '''
+def parse_multi_pcap(p_files):
+	global attack
+	for p in p_files:
+		# Build handling for parsing single files
+		print("Loading PCAP File: " + p)
+		# Use pyshark to read the selected PCAP file
+		cap = pyshark.FileCapture(p)
+
+		# Get number of packets in pcap, they must be loaded first
+		cap.load_packets()
+		count = len(cap)
+		
+		print("Number of packets in pcap:" + str(len(cap)))
+		
+		# Set attack status of current PCAP File
+		att = p.rsplit("/", 1)[1]
+		if "attack" in att:
+			attack = 1
+		elif "jamming" in att:
+			attack = 1
+		elif "hijack" in att:
+			attack = 2
+		elif "mitm" in att:
+			attack = 3
+		else:
+			attack = 0
+		
+		# Parse pcap file and build samples
+		parse_pcap_samples(cap, count)	
+
 
 # Setup argparse for recovering command line arguments
 parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
@@ -378,6 +408,10 @@ try:
 		for f in pcap_files:
 			print(f)
 		
+		parse_multi_pcap(pcap_files)
+		
+		write_to_csv()
+		
 	else:
 		# Build handling for parsing single files
 		print("Loading PCAP File: " + args.pcap_path)
@@ -393,6 +427,8 @@ try:
 			
 			# Parse pcap file and build samples
 			parse_pcap_samples(cap, count)
+			
+			write_to_csv()
 
 		else:
 			not_btle_err = True
