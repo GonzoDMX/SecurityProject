@@ -17,11 +17,11 @@ This is a university project researching security for embedded systems. I take a
 	2. Scan for Bluetooth Classic devices.
 	3. Spoof Bluetooth Classic Devices.
 	4. Brute Force Bluetooth Classic Pins (Only works on devices before Bluetooth 2.1).
-* **Dataset Constructor** - This is a python script for processing BTLE PCAP files in preperation for training a neural network.
-	1. Can process files individually or in a batch
-	2. The script parses data of interest in pcap files and flags if they were captured during an attack
-	3. User can set the sample size (based on capture time) via a command line argument
-	4. The final result is output as a CSV file
+* **Dataset Constructor** - This is a python script for processing BTLE PCAP files in preperation for training a neural network. PCAP packets are parsed into samples which are grouped based on capture time.
+	1. Can process files individually or in a batch.
+	2. The script parses data of interest in pcap files and flags if they were captured during an attack.
+	3. User can set the sample size via a command line argument.
+	4. The final result is output as a CSV file.
 	
 ### Other Packages
 * **Messenger BT Classic** - Same as Messenger BLE but using Bluetooth Classic. Note: Scanning of devices is not handled in App. This is a limitation of Android, which only allows Bluetooth Classic pairing through the OS Utility.
