@@ -22,7 +22,8 @@ This is a university project researching security for embedded systems. I take a
 	2. The script parses data of interest in pcap files and flags if they were captured during an attack.
 	3. User can set the sample size via a command line argument.
 	4. The final result is output as a CSV file.
-	
+* **CNN Training Models** - Includes Tensorflow scripts for the different convolutional neural network models I used to test the BTLE network data.
+
 ### Other Packages
 * **Messenger BT Classic** - Same as Messenger BLE but using Bluetooth Classic. Note: Scanning of devices is not handled in App. This is a limitation of Android, which only allows Bluetooth Classic pairing through the OS Utility.
 	1. Send and receive messages over Bluetooth Classic.
