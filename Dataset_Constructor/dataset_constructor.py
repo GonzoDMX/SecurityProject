@@ -30,11 +30,19 @@ import os
 import csv
 import string
 
+
+# Global flag for setting batch processing
 parse_dir = False
+
+# Global flags for seting appropriate Error Messages
 not_btle_err = False
 no_pcap_err = False
 
+# Global variable for holding the Dataset Class
 dataset = None
+
+# Address Filter list
+filter_list = []
 
 # CSV file write path
 output_path = ""
@@ -124,12 +132,17 @@ class PCAP_Dataset:
 		self.size_list = []
 		self.rssi_list = []
 		
+	# Add packet to count
 	def increment_packets(self):
 		self.sample[self.i]["PACKET_COUNT"] += 1
 		
+	# Remove packet from count, happens if packet hits a filter
+	def decrement_packets(self):
+		self.sample[self.i]["PACKET_COUNT"] -= 1
+		
 	# If address is new, add to list and increment count
 	def add_address(self, addr):
-		if addr not in self.addr_list:
+		if addr and addr not in self.addr_list:
 			self.addr_list.append(addr)
 			self.sample[self.i]["ADDR_COUNT"] = len(self.addr_list)
 		
@@ -305,15 +318,16 @@ def analyse_packet(cap, i):
 	global dataset
 	global attack
 	dataset.increment_packets()
-	for ind in range(0, 7):
+	for ind in range(8):
 		try:
 			if ind == 0:
-				# Append new addresses to addr_list
+				# Collect Scanning address
 				dataset.add_address(cap[i][1].scanning_address)
 
 			elif ind == 1:
+				# Collect Advertising Address
 				dataset.add_address(cap[i][1].advertising_address)
-
+				
 			elif ind == 2:
 				# Append new channels
 				dataset.add_channel(cap[i][0].channel)
@@ -341,10 +355,29 @@ def analyse_packet(cap, i):
 	dataset.sample[dataset.i]["ATTACK"] = attack
 
 
+''' Check if packet passes filter '''
+def filter_check(cap, i):
+	global filter_list
+	addrs = []
+	try:
+		addrs.append(cap[i][1].scanning_address)
+	except AttributeError:
+		pass
+	try:
+		addrs.append(cap[i][1].advertising_address)
+	except AttributeError:
+		pass
+	for a in addrs:
+		if a in filter_list:
+			return True
+	return False
+	
+
 ''' Iterate through all packets in pcap and break into samples '''
 def parse_pcap_samples(cap, count):
 	global dataset
 	global roll_over
+	global filter_list
 	# Iterate through all packets
 	for i in range(0, count):
 		p_time = float(cap[i].frame_info.time_relative)
@@ -358,7 +391,9 @@ def parse_pcap_samples(cap, count):
 			print("Split at packet: " + str(i))
 			print("sample" + str(dataset.i + 1))
 			dataset.add_sample()
-		analyse_packet(cap, i)
+		if not filter_list or filter_check(cap, i):
+			analyse_packet(cap, i)
+		
 	# Set roll_over time for processing multiple packets
 	roll_over = p_time + roll_over
 
@@ -390,9 +425,9 @@ def parse_multi_pcap(p_files):
 			attack = 3
 		else:
 			attack = 0
-		
 		# Parse pcap file and build samples
 		parse_pcap_samples(cap, count)	
+
 
 ''' Main program function, read arg parser and execute in batch or single file mode '''
 def main():
@@ -401,6 +436,7 @@ def main():
 	global bad_name_err
 	global no_pcap_err
 	global not_btle_err
+	global filter_list
 	# Setup argparse for recovering command line arguments
 	parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
 	group = parser.add_mutually_exclusive_group(required=True)
@@ -423,8 +459,8 @@ def main():
 						help="Files including \'attack\' in name " + 
 						"will be flagged in output file.")
 
-	parser.add_argument("--mac-filter", nargs="+", default=[], required=False,
-						dest="mac_filter", metavar='BD_ADDR', type=str,
+	parser.add_argument("--addr-filter", nargs="+", default=[], required=False,
+						dest="addr_filter", metavar='BD_ADDR', type=str,
 						help="Takes one or more BTLE BD_ADDRs, " + 
 						"output data will only include packets with BD_ADDRs in list.")
 
@@ -433,6 +469,8 @@ def main():
 						help="Set packet sample size in seconds.")
 	args = parser.parse_args()
 
+	# Send addresses to filter list
+	filter_list = args.addr_filter
 
 	# Set output file name and path
 	set_output_path(args.out_name, args.out_dir)
