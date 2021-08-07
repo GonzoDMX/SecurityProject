@@ -350,6 +350,10 @@ def parse_pcap_samples(cap, count):
 		p_time = float(cap[i].frame_info.time_relative)
 		time = p_time + roll_over - dataset.start
 		if time > dataset.size:
+			while time > dataset.size * 2:
+				dataset.add_sample()
+				dataset.start += dataset.size
+				time = p_time + roll_over - dataset.start
 			dataset.start += dataset.size
 			print("Split at packet: " + str(i))
 			print("sample" + str(dataset.i + 1))
@@ -390,104 +394,110 @@ def parse_multi_pcap(p_files):
 		# Parse pcap file and build samples
 		parse_pcap_samples(cap, count)	
 
+''' Main program function, read arg parser and execute in batch or single file mode '''
+def main():
+	global dataset
+	global parse_dir
+	global bad_name_err
+	global no_pcap_err
+	global not_btle_err
+	# Setup argparse for recovering command line arguments
+	parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
+	group = parser.add_mutually_exclusive_group(required=True)
 
-# Setup argparse for recovering command line arguments
-parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
-group = parser.add_mutually_exclusive_group(required=True)
+	group.add_argument("--pcap-file", dest="pcap_path", required=False, metavar='\b',
+						type=check_file_exists, help="Set path to target PCAP file.")
 
-group.add_argument("--pcap-file", dest="pcap_path", required=False, metavar='\b',
-					type=check_file_exists, help="Set path to target PCAP file.")
+	group.add_argument("--pcap-dir", dest="pcap_dir", required=False, metavar='\b',
+						type=check_dir_exists, help="Set path to directory with target PCAP files.")
 
-group.add_argument("--pcap-dir", dest="pcap_dir", required=False, metavar='\b',
-					type=check_dir_exists, help="Set path to directory with target PCAP files.")
+	parser.add_argument("--out-dir", dest="out_dir", required=False, metavar='\b',
+						type=check_dir_exists, help="Set path for the dataset output .CSV file.")
 
-parser.add_argument("--out-dir", dest="out_dir", required=False, metavar='\b',
-					type=check_dir_exists, help="Set path for the dataset output .CSV file.")
+	parser.add_argument("--out-name", dest="out_name", required=False, metavar='\b',
+						type=validate_name,
+						help="Set name for the dataset output .CSV file (default is: out.csv).")
 
-parser.add_argument("--out-name", dest="out_name", required=False, metavar='\b',
-					type=validate_name,
-					help="Set name for the dataset output .CSV file (default is: out.csv).")
+	parser.add_argument("--attack", action='store_true', required=False,
+						dest="mark_att",
+						help="Files including \'attack\' in name " + 
+						"will be flagged in output file.")
 
-parser.add_argument("--attack", action='store_true', required=False,
-					dest="mark_att",
-					help="Files including \'attack\' in name " + 
-					"will be flagged in output file.")
+	parser.add_argument("--mac-filter", nargs="+", default=[], required=False,
+						dest="mac_filter", metavar='BD_ADDR', type=str,
+						help="Takes one or more BTLE BD_ADDRs, " + 
+						"output data will only include packets with BD_ADDRs in list.")
 
-parser.add_argument("--mac-filter", nargs="+", default=[], required=False,
-					dest="mac_filter", metavar='BD_ADDR', type=str,
-					help="Takes one or more BTLE BD_ADDRs, " + 
-					"output data will only include packets with BD_ADDRs in list.")
-
-parser.add_argument("--sample-size", dest="sample_size", required=False,
-					metavar='\b', type=set_sample_size, default="0.0",
-					help="Set packet sample size in seconds.")
-args = parser.parse_args()
+	parser.add_argument("--sample-size", dest="sample_size", required=False,
+						metavar='\b', type=set_sample_size, default="0.0",
+						help="Set packet sample size in seconds.")
+	args = parser.parse_args()
 
 
-# Set output file name and path
-set_output_path(args.out_name, args.out_dir)
+	# Set output file name and path
+	set_output_path(args.out_name, args.out_dir)
 
-# Declare dataset
-dataset = PCAP_Dataset(args.sample_size)
-		
-# Parse the supplied pcap file or directory
-try:
-	if parse_dir:
-		print("Collecting PCAP files in Dir: " + args.pcap_dir)
-		# Build a list of the files in pcap_dir
-		pcap_files = collect_pcap_files(args.pcap_dir)
-		
-		# Verify all files use btle protocol
-		print("Verifying btle protocol")
-		pcap_files = check_dir_btle(pcap_files)
-
-		print("Complete !")		
-		print("PCAP files found:")
-		for f in pcap_files:
-			print(f)
-		
-		parse_multi_pcap(pcap_files)
-		
-		write_to_csv()
-		
-	else:
-		# Build handling for parsing single files
-		print("Loading PCAP File: " + args.pcap_path)
-		# Use pyshark to read the selected PCAP file
-		cap = pyshark.FileCapture(args.pcap_path)
-		# Verify the pcaps are BTLE
-		if check_btle_protocol(cap[0].frame_info.protocols):
-			# Get number of packets in pcap, they must be loaded first
-			cap.load_packets()
-			count = len(cap)
+	# Declare dataset
+	dataset = PCAP_Dataset(args.sample_size)
 			
-			print("Number of packets in pcap:" + str(len(cap)))
+	# Parse the supplied pcap file or directory
+	try:
+		if parse_dir:
+			print("Collecting PCAP files in Dir: " + args.pcap_dir)
+			# Build a list of the files in pcap_dir
+			pcap_files = collect_pcap_files(args.pcap_dir)
 			
-			# Parse pcap file and build samples
-			parse_pcap_samples(cap, count)
+			# Verify all files use btle protocol
+			print("Verifying btle protocol")
+			pcap_files = check_dir_btle(pcap_files)
+
+			print("Complete !")		
+			print("PCAP files found:")
+			for f in pcap_files:
+				print(f)
+			
+			parse_multi_pcap(pcap_files)
 			
 			write_to_csv()
-
-		else:
-			not_btle_err = True
-			raise TypeError
 			
-except TypeError as e:
-	if bad_name_err:
-		print("Char: \'" + +"\' cannot be used in output name.")
-	elif not_btle_err:
-		print("Error: " + args.pcap_path + " is not btle protocol.")
-	else:
-		print(e)
+		else:
+			# Build handling for parsing single files
+			print("Loading PCAP File: " + args.pcap_path)
+			# Use pyshark to read the selected PCAP file
+			cap = pyshark.FileCapture(args.pcap_path)
+			# Verify the pcaps are BTLE
+			if check_btle_protocol(cap[0].frame_info.protocols):
+				# Get number of packets in pcap, they must be loaded first
+				cap.load_packets()
+				count = len(cap)
+				
+				print("Number of packets in pcap:" + str(len(cap)))
+				
+				# Parse pcap file and build samples
+				parse_pcap_samples(cap, count)
+				
+				write_to_csv()
 
-except IndexError as e:
-	if no_pcap_err:
-		print("No PCAP files found in: " + args.pcap_dir)
-	else:
-		print(e)		
+			else:
+				not_btle_err = True
+				raise TypeError
+				
+	except TypeError as e:
+		if bad_name_err:
+			print("Char: \'" + +"\' cannot be used in output name.")
+		elif not_btle_err:
+			print("Error: " + args.pcap_path + " is not btle protocol.")
+		else:
+			print(e)
+
+	except IndexError as e:
+		if no_pcap_err:
+			print("No PCAP files found in: " + args.pcap_dir)
+		else:
+			print(e)		
 
 
 
-
-
+if __name__ == "__main__":
+	main()
 
