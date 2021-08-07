@@ -62,9 +62,14 @@ class PCAP_Dataset:
 			self.size = 0.25
 
 		# Set dictionary keys and 
-		self.header = [	"ADDR_COUNT",	# cap[i][1].scanning_address \\ cap[i][1].advertising_address
+		self.header = [	"NUMBER",		# Counts to sample number starting from 0
+						"PACKET_COUNT", #
+						"ADDR_COUNT",	# cap[i][1].scanning_address \\ cap[i][1].advertising_address
 						"CHAN_COUNT",	# cap[i][0].channel
 						"DATA_SIZE",	# cap[i][1].length
+						"AVG_SIZE",		#
+						"MIN_SIZE",		#
+						"MAX_SIZE",		#
 						"ADV_IND", 		# cap[i][1].advertising_header_pdu_type 
 						"ADV_DIRECT_IND",	# "
 						"ADV_NONCONN_IND", 	# "
@@ -73,10 +78,16 @@ class PCAP_Dataset:
 						"SCAN_RSP",			# "
 						"CONNECT_REQ",		# "
 						"AVG_RSSI", 		# cap[i][0].rssi
-						"BAD_CRC", 			# cap[i][0].crc_bad
-						"ATTACK" ]
+						"MIN_RSSI",			#
+						"MAX_RSSI",			#
+						"CRC_BAD", 			# cap[i][0].crc_bad
+						"CRC_WEIGHT",		# 1 if more likely to be bad else 0
+						"ATTACK" ]			#
 		# Declare index for accessing current sample
 		self.i = 0
+		
+		# Declare counter for CRC Checks
+		self.crc_count = 0
 		
 		# Dictionary template for building a sample
 		self.template = {}
@@ -96,6 +107,9 @@ class PCAP_Dataset:
 		# List contains all unique channels in a sample
 		self.chan_list = []
 
+		# Gets all packet sizes for analysis
+		self.size_list = []
+
 		# Average the RSSI value of captured packets
 		self.rssi_list = []
 
@@ -103,9 +117,15 @@ class PCAP_Dataset:
 	def add_sample(self):
 		self.i += 1
 		self.sample.append(self.template.copy())
+		self.sample[self.i]["NUMBER"] = self.i
+		self.crc_count = 0
 		self.addr_list = []
 		self.chan_list = []
+		self.size_list = []
 		self.rssi_list = []
+		
+	def increment_packets(self):
+		self.sample[self.i]["PACKET_COUNT"] += 1
 		
 	# If address is new, add to list and increment count
 	def add_address(self, addr):
@@ -118,6 +138,15 @@ class PCAP_Dataset:
 		if chan not in self.chan_list:
 			self.chan_list.append(chan)
 			self.sample[self.i]["CHAN_COUNT"] = len(self.chan_list)
+		
+	# Parse data list
+	def set_data_size(self, size):
+		self.sample[self.i]["DATA_SIZE"] += size
+		self.size_list.append(size)
+		self.size_list.sort()
+		self.sample[self.i]["MIN_SIZE"] = self.size_list[0]
+		self.sample[self.i]["MAX_SIZE"] = self.size_list[-1]
+		self.sample[self.i]["AVG_SIZE"] = round(sum(s for s in self.size_list) / len(self.size_list), 2)
 		
 	# Increment the corresponding PDU Type
 	def set_pdu(self, pdu):
@@ -139,10 +168,16 @@ class PCAP_Dataset:
 	# Update the RSSI average
 	def set_rssi(self, rssi):
 		self.rssi_list.append(rssi)
-		rssi_sum = 0
-		for r in self.rssi_list:
-			rssi_sum += r
-		self.sample[self.i]["AVG_RSSI"] = rssi_sum / len(self.rssi_list)	
+		self.sample[self.i]["AVG_RSSI"] = round(sum(r for r in self.rssi_list) / len(self.rssi_list), 2)
+		self.rssi_list.sort()
+		self.sample[self.i]["MIN_RSSI"] = self.rssi_list[0]
+		self.sample[self.i]["MAX_RSSI"] = self.rssi_list[-1]
+
+	# Update CRC Check values
+	def set_crc_weight(self, crc):
+		self.sample[self.i]["CRC_BAD"] += crc
+		self.crc_count += 1
+		self.sample[self.i]["CRC_WEIGHT"] = round(self.sample[self.i]["CRC_BAD"] / self.crc_count, 2)
 
 """ --------------------------------------"""
 
@@ -269,6 +304,7 @@ def write_to_csv():
 def analyse_packet(cap, i):
 	global dataset
 	global attack
+	dataset.increment_packets()
 	for ind in range(0, 7):
 		try:
 			if ind == 0:
@@ -284,7 +320,7 @@ def analyse_packet(cap, i):
 
 			elif ind == 3:
 				# Add size of packet to total datasize
-				dataset.sample[dataset.i]["DATA_SIZE"] += int(cap[i][1].length)
+				dataset.set_data_size(int(cap[i][1].length))
 
 			elif ind == 4:
 				# Add pdu type to corresponding pdu
@@ -297,8 +333,10 @@ def analyse_packet(cap, i):
 			elif ind == 6:
 				# Check if CRC is bad -> Get total number of bad CRCs per sample
 				if cap[i][0].crc_bad == "CRC is bad":
-					dataset.sample[dataset.i]["BAD_CRC"] += 1
+					dataset.set_crc_weight(1)
 		except AttributeError:
+			if ind == 6:
+				dataset.set_crc_weight(0)
 			continue
 	dataset.sample[dataset.i]["ATTACK"] = attack
 
