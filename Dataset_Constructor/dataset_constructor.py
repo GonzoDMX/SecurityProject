@@ -47,6 +47,9 @@ filter_list = []
 # CSV file write path
 output_path = ""
 
+# Used to parse attack times and mark affected packets
+attack_list = []
+
 # Flag a sample that contains an attack
 #		0 = No Attack
 #		1 = Jamming
@@ -199,8 +202,8 @@ class PCAP_Dataset:
 def check_file_exists(p_file):
 	if not os.path.exists(p_file):
 		raise argparse.ArgumentTypeError("{0} does not exist.".format(p_file))
-	if not p_file.endswith('.pcap'):
-		raise argparse.ArgumentTypeError("{0} is not a pcap file.".format(p_file))
+	#if not p_file.endswith('.pcap'):
+	#	raise argparse.ArgumentTypeError("{0} is not a pcap file.".format(p_file))
 	return p_file
 
 
@@ -413,20 +416,21 @@ def parse_multi_pcap(p_files):
 		
 		print("Number of packets in pcap:" + str(len(cap)))
 		
-		# Set attack status of current PCAP File
-		att = p.rsplit("/", 1)[1]
-		if "attack" in att:
-			attack = 1
-		elif "jamming" in att:
-			attack = 1
-		elif "hijack" in att:
-			attack = 2
-		elif "mitm" in att:
-			attack = 3
-		else:
-			attack = 0
 		# Parse pcap file and build samples
 		parse_pcap_samples(cap, count)	
+
+
+# Get attack times for flagging samples
+def parse_attack_path(att_path):
+	global attack_list
+	with open(att_path) as file:
+		for row in csv.DictReader(file, skipinitialspace=True):
+			tempDict = {}
+			tempDict["Time"] = float(row["Time"])
+			tempDict["Info"] = row["Info"]
+			tempDict["Status"] = int(row["Status"])
+			attack_list.append(tempDict)
+		return True
 
 
 ''' Main program function, read arg parser and execute in batch or single file mode '''
@@ -437,6 +441,7 @@ def main():
 	global no_pcap_err
 	global not_btle_err
 	global filter_list
+	global attack_path
 	# Setup argparse for recovering command line arguments
 	parser = argparse.ArgumentParser(description='BTLE Pcap file path.')
 	group = parser.add_mutually_exclusive_group(required=True)
@@ -454,10 +459,8 @@ def main():
 						type=validate_name,
 						help="Set name for the dataset output .CSV file (default is: out.csv).")
 
-	parser.add_argument("--attack", action='store_true', required=False,
-						dest="mark_att",
-						help="Files including \'attack\' in name " + 
-						"will be flagged in output file.")
+	parser.add_argument("--attack-log", dest="attack_log", required=False, metavar='\b',
+						type=check_file_exists, help="Set attack log for pcap.")
 
 	parser.add_argument("--addr-filter", nargs="+", default=[], required=False,
 						dest="addr_filter", metavar='BD_ADDR', type=str,
@@ -477,6 +480,10 @@ def main():
 
 	# Declare dataset
 	dataset = PCAP_Dataset(args.sample_size)
+	
+	# Get attack path
+	if not parse_attack_path(args.attack_log):
+		print("Attack Log Path invalid")
 			
 	# Parse the supplied pcap file or directory
 	try:
